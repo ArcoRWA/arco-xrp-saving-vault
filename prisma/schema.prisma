@@ -1,0 +1,154 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DepositStatus {
+  CREDITED
+  UNMATCHED
+  IGNORED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  FAILED
+}
+
+enum LedgerEntryType {
+  DEPOSIT
+  YIELD
+  WITHDRAWAL_REQUEST
+  WITHDRAWAL_APPROVAL
+  WITHDRAWAL_REJECTION
+  MANUAL_ASSIGNMENT
+}
+
+model User {
+  id             String        @id @default(cuid())
+  externalId     String?       @unique
+  destinationTag Int           @unique
+  depositAddress String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  position       VaultPosition?
+  deposits       Deposit[]
+  withdrawals    Withdrawal[]
+  ledgerEntries  LedgerEntry[]
+}
+
+model VaultPosition {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  shares         Decimal  @default(0) @db.Decimal(40, 18)
+  lockedShares   Decimal  @default(0) @db.Decimal(40, 18)
+  principalDrops BigInt   @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id])
+}
+
+model VaultState {
+  id                     String   @id @default("default")
+  currentShareIndex       Decimal  @default(1) @db.Decimal(40, 18)
+  totalShares             Decimal  @default(0) @db.Decimal(40, 18)
+  totalAssetsDrops        BigInt   @default(0)
+  pendingWithdrawalDrops  BigInt   @default(0)
+  dustDrops               BigInt   @default(0)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+}
+
+model Deposit {
+  id             String        @id @default(cuid())
+  txHash         String        @unique
+  ledgerIndex    BigInt
+  senderAddress  String
+  destinationTag Int?
+  userId         String?
+  amountDrops    BigInt
+  creditedShares Decimal?      @db.Decimal(40, 18)
+  status         DepositStatus
+  raw            Json?
+  createdAt      DateTime      @default(now())
+  user           User?         @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([destinationTag])
+}
+
+model YieldEvent {
+  id               String   @id @default(cuid())
+  amountDrops      BigInt
+  shareIndexBefore Decimal  @db.Decimal(40, 18)
+  shareIndexAfter  Decimal  @db.Decimal(40, 18)
+  memo             String?
+  createdBy        String
+  createdAt        DateTime @default(now())
+}
+
+model Withdrawal {
+  id                 String           @id @default(cuid())
+  userId             String
+  destinationAddress String
+  destinationTag     Int?
+  requestedDrops     BigInt?
+  payoutDrops        BigInt
+  sharesBurned       Decimal          @db.Decimal(40, 18)
+  shareIndexAtQuote  Decimal          @db.Decimal(40, 18)
+  status             WithdrawalStatus @default(PENDING)
+  payoutTxHash       String?
+  failureReason      String?
+  requestedAt        DateTime         @default(now())
+  resolvedAt         DateTime?
+  user               User             @relation(fields: [userId], references: [id])
+
+  @@index([userId, requestedAt])
+  @@index([status])
+}
+
+model LedgerEntry {
+  id            String          @id @default(cuid())
+  type          LedgerEntryType
+  userId        String?
+  amountDrops   BigInt
+  sharesDelta   Decimal         @default(0) @db.Decimal(40, 18)
+  shareIndex    Decimal         @db.Decimal(40, 18)
+  referenceType String
+  referenceId   String
+  createdAt     DateTime        @default(now())
+  user          User?           @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([referenceType, referenceId])
+}
+
+model ChainCursor {
+  account         String   @id
+  lastLedgerIndex BigInt
+  updatedAt       DateTime @updatedAt
+}
+
+model ProcessedTransaction {
+  txHash      String   @id
+  ledgerIndex BigInt
+  kind        String
+  createdAt   DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actor      String
+  action     String
+  targetType String
+  targetId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+}
